@@ -54,14 +54,15 @@ func main() {
 		Output: io.MultiWriter(logFile, os.Stdout),
 	}))
 
+	// default handler
 	e.GET("/", func(c echo.Context) error {
 		return c.JSON(http.StatusOK, "GO API")
 	})
+
 	apiGroup := e.Group("/api")
 	{
 		v1 := apiGroup.Group("/v1", middleware.JWTWithConfig(intercept.JwtMiddleware().JwtConfig()))
 		{
-
 			userRepository := _userRepo.NewMysqlUserRepository(db)
 			userService := _userService.NewUserService(userRepository)
 			userHandler := _userHttpDelivery.NewUserHandler(userService)
@@ -73,7 +74,6 @@ func main() {
 			v1.POST("/users", userHandler.StoreUser)
 			v1.PUT("/users", userHandler.UpdateUser)
 			v1.DELETE("/users/:id", userHandler.DeleteUser)
-
 		}
 	}
 

@@ -3,7 +3,6 @@ package intercept
 import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	"github.com/labstack/gommon/log"
 	"github.com/spf13/viper"
 	"strings"
 )
@@ -17,7 +16,6 @@ func JwtMiddleware() *jwt {
 }
 
 func (m *jwt) JwtConfig() middleware.JWTConfig {
-	log.Info("JWT SECRET", m.secretKey)
 	return middleware.JWTConfig{
 		Skipper: func(ctx echo.Context) bool {
 			apiV1URI := "/api/v1"
