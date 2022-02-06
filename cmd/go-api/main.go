@@ -7,32 +7,65 @@ import (
 	_userRepo "github.com/alpakih/go-api/internal/users/repository/mysql"
 	_userService "github.com/alpakih/go-api/internal/users/service"
 	"github.com/alpakih/go-api/pkg/database"
-	_ "github.com/alpakih/go-api/pkg/database/dialect/mysql"
+	_ "github.com/alpakih/go-api/pkg/database/dialect/postgres"
 	"github.com/alpakih/go-api/pkg/env"
 	"github.com/alpakih/go-api/pkg/intercept"
+
+	//"github.com/alpakih/go-api/pkg/intercept"
+
+	_ "github.com/alpakih/go-api/pkg/intercept"
+
 	"github.com/alpakih/go-api/pkg/logging"
 	"github.com/alpakih/go-api/pkg/validation"
+	"github.com/go-oauth2/oauth2/v4"
+	"github.com/go-oauth2/oauth2/v4/manage"
+	"github.com/go-oauth2/oauth2/v4/models"
+	"github.com/go-oauth2/oauth2/v4/server"
+	"github.com/go-oauth2/oauth2/v4/store"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/spf13/viper"
+	"golang.org/x/crypto/bcrypt"
 	"io"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
+)
+
+var (
+	oauthServ *server.Server
+	once      sync.Once
 )
 
 func main() {
 
 	env.LoadEnvironment()
 
+	db := database.GetConnection()
+
+	manager := manage.NewDefaultManager()
+	// token memory store
+	manager.MustTokenStorage(store.NewMemoryTokenStore())
+	// client memory store
+	clientStore := store.NewClientStore()
+	clientStore.Set("000000", &models.Client{
+		ID:     "000000",
+		Secret: "999999",
+		Domain: "http://localhost:8080",
+	})
+	manager.MapClientStorage(clientStore)
+	InitServer(manager)
+	oauthServ.SetAllowGetAccessRequest(true)
+	oauthServ.SetClientInfoHandler(server.ClientFormHandler)
+
 	// Echo instance
 	e := echo.New()
 
-	db := database.GetConnection()
-
 	if viper.GetBool("database.autoMigrate") {
 		database.RegisterModel(domain.User{})
+		database.RegisterModel(domain.OauthClient{})
 		database.Migrate()
 	}
 
@@ -59,21 +92,54 @@ func main() {
 		return c.JSON(http.StatusOK, "GO API")
 	})
 
+	auth := e.Group("/oauth2")
+	{
+		auth.POST("/token", HandleTokenRequest)
+	}
+
+	// oauth2 password credentials.
+	oauthServ.SetPasswordAuthorizationHandler(func(ctx context.Context, username, password string) (userID string, err error) {
+		userRepository := _userRepo.NewMysqlUserRepository(db)
+		userService := _userService.NewUserService(userRepository)
+		result, err := userService.GetByUsername(username)
+		if err := bcrypt.CompareHashAndPassword([]byte(result.Password), []byte(password)); err == nil {
+			userID = username
+		}
+		return
+	})
+
 	apiGroup := e.Group("/api")
 	{
-		v1 := apiGroup.Group("/v1", middleware.JWTWithConfig(intercept.JwtMiddleware().JwtConfig()))
+		v1 := apiGroup.Group("/v1")
 		{
-			userRepository := _userRepo.NewMysqlUserRepository(db)
-			userService := _userService.NewUserService(userRepository)
-			userHandler := _userHttpDelivery.NewUserHandler(userService)
+			userProtect := v1.Group("/users", middleware.JWTWithConfig(intercept.JwtMiddleware().JwtConfig()))
+			{
+				userRepository := _userRepo.NewMysqlUserRepository(db)
+				userService := _userService.NewUserService(userRepository)
+				userHandler := _userHttpDelivery.NewUserHandler(userService)
+				userProtect.GET("/", userHandler.FetchUsers)
+				userProtect.GET("/:id", userHandler.GetUserByID)
+				userProtect.PUT("/update", userHandler.UpdateUser)
+				userProtect.DELETE("/:id", userHandler.DeleteUser)
+			}
 
-			v1.POST("/users/token", userHandler.RequestToken)
-			v1.GET("/users", userHandler.FetchUsers)
-			v1.GET("/users", userHandler.FetchUsers)
-			v1.GET("/users/:id", userHandler.GetUserByID)
-			v1.POST("/users", userHandler.StoreUser)
-			v1.PUT("/users", userHandler.UpdateUser)
-			v1.DELETE("/users/:id", userHandler.DeleteUser)
+			userEndpoint := v1.Group("/users")
+			{
+				userRepository := _userRepo.NewMysqlUserRepository(db)
+				userService := _userService.NewUserService(userRepository)
+				userHandler := _userHttpDelivery.NewUserHandler(userService)
+
+				userEndpoint.POST("/token", userHandler.RequestToken)
+				userEndpoint.POST("/create", userHandler.StoreUser)
+			}
+
+			protectOauth := v1.Group("/bajingan", intercept.OdkOauthCfg(oauthServ, &intercept.DefaultConfig))
+			{
+				userRepository := _userRepo.NewMysqlUserRepository(db)
+				userService := _userService.NewUserService(userRepository)
+				userHandler := _userHttpDelivery.NewUserHandler(userService)
+				protectOauth.GET("/:id", userHandler.GetUserByID)
+			}
 		}
 	}
 
@@ -94,4 +160,26 @@ func main() {
 	if err := e.Shutdown(ctx); err != nil {
 		e.Logger.Fatal(err)
 	}
+}
+
+// InitServer Initialize the service
+func InitServer(manager oauth2.Manager) *server.Server {
+	once.Do(func() {
+		oauthServ = server.NewDefaultServer(manager)
+	})
+	return oauthServ
+}
+
+// HandleTokenRequest token request handling
+func HandleTokenRequest(c echo.Context) error {
+	return oauthServ.HandleTokenRequest(c.Response().Writer, c.Request())
+}
+
+// Sample
+func HandleValidate(c echo.Context) error {
+	token, err := oauthServ.ValidationBearerToken(c.Request())
+	if err != nil {
+		return c.JSON(http.StatusBadRequest, echo.Map{"message": http.StatusText(http.StatusBadRequest)})
+	}
+	return c.JSON(http.StatusOK, echo.Map{"message": token.GetAccess()})
 }

@@ -10,8 +10,8 @@ type User struct {
 	ID        string    `gorm:"column:id;type:varchar(60);primary_key:true" json:"id"`
 	UserName  string    `gorm:"column:username;type:varchar(50);unique" json:"user_name"`
 	Password  string    `gorm:"column:password;type:varchar(100)" json:"-"`
-	CreatedAt time.Time `gorm:"column:created_at" json:"created_at"`
-	UpdatedAt time.Time `gorm:"column:updated_at" json:"updated_at"`
+	CreatedAt time.Time `gorm:"column:created_at;type:timestamp" json:"created_at"`
+	UpdatedAt time.Time `gorm:"column:updated_at;type:timestamp" json:"updated_at"`
 }
 
 func (c User) TableName() string {

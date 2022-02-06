@@ -47,7 +47,7 @@ func (r *UserHandler) RequestToken(ctx echo.Context) error {
 		return ctx.JSON(http.StatusInternalServerError, echo.Map{"message": http.StatusText(http.StatusInternalServerError)})
 	}
 
-	if err := bcrypt.CompareHashAndPassword( []byte(result.Password),[]byte(request.Password)); err != nil {
+	if err := bcrypt.CompareHashAndPassword([]byte(result.Password), []byte(request.Password)); err != nil {
 		return ctx.JSON(http.StatusBadRequest, echo.Map{"message": "incorrect username or password"})
 	}
 
@@ -84,7 +84,6 @@ func (r *UserHandler) FetchUsers(ctx echo.Context) error {
 	if limitParse, err := strconv.Atoi(params.Get("limit")); err == nil {
 		limit = limitParse
 	}
-
 	result, err := r.UserService.Fetch(limit, offset)
 	if err != nil {
 		log.Error(err)
@@ -122,7 +121,8 @@ func (r *UserHandler) StoreUser(ctx echo.Context) error {
 	}
 
 	if err := r.UserService.Store(request); err != nil {
-		return ctx.JSON(http.StatusInternalServerError, echo.Map{"message": http.StatusText(http.StatusInternalServerError)})
+		return ctx.JSON(http.StatusInternalServerError,
+			echo.Map{"message": http.StatusText(http.StatusInternalServerError)})
 	}
 
 	return ctx.JSON(http.StatusOK, echo.Map{"message": "save data success"})
