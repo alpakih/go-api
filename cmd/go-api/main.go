@@ -11,17 +11,13 @@ import (
 	"github.com/alpakih/go-api/pkg/env"
 	"github.com/alpakih/go-api/pkg/intercept"
 
-	//"github.com/alpakih/go-api/pkg/intercept"
-
 	_ "github.com/alpakih/go-api/pkg/intercept"
 
 	"github.com/alpakih/go-api/pkg/logging"
 	"github.com/alpakih/go-api/pkg/validation"
 	"github.com/go-oauth2/oauth2/v4"
 	"github.com/go-oauth2/oauth2/v4/manage"
-	"github.com/go-oauth2/oauth2/v4/models"
 	"github.com/go-oauth2/oauth2/v4/server"
-	"github.com/go-oauth2/oauth2/v4/store"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/spf13/viper"
@@ -42,20 +38,12 @@ var (
 func main() {
 
 	env.LoadEnvironment()
-
 	db := database.GetConnection()
-
 	manager := manage.NewDefaultManager()
-	// token memory store
-	manager.MustTokenStorage(store.NewMemoryTokenStore())
-	// client memory store
-	clientStore := store.NewClientStore()
-	clientStore.Set("000000", &models.Client{
-		ID:     "000000",
-		Secret: "999999",
-		Domain: "http://localhost:8080",
-	})
-	manager.MapClientStorage(clientStore)
+	oauthStore := database.NewStoreWithDB(
+		&database.Config{}, database.GetConnection(), 15)
+	defer oauthStore.Close()
+	manager.MapTokenStorage(oauthStore)
 	InitServer(manager)
 	oauthServ.SetAllowGetAccessRequest(true)
 	oauthServ.SetClientInfoHandler(server.ClientFormHandler)
@@ -65,7 +53,6 @@ func main() {
 
 	if viper.GetBool("database.autoMigrate") {
 		database.RegisterModel(domain.User{})
-		database.RegisterModel(domain.OauthClient{})
 		database.Migrate()
 	}
 
@@ -133,7 +120,7 @@ func main() {
 				userEndpoint.POST("/create", userHandler.StoreUser)
 			}
 
-			protectOauth := v1.Group("/bajingan", intercept.OdkOauthCfg(oauthServ, &intercept.DefaultConfig))
+			protectOauth := v1.Group("/tester", intercept.OdkOauthCfg(oauthServ, &intercept.DefaultConfig))
 			{
 				userRepository := _userRepo.NewMysqlUserRepository(db)
 				userService := _userService.NewUserService(userRepository)
